@@ -47,4 +47,36 @@ public class ProjectTest extends PersistenceCapableTest {
         Assert.assertNotNull(bom.getUuid());
         Assert.assertNotNull(bom.getImported());
     }
+
+     
+    @Test
+    public void testParentProjectPersistense() {
+        Project p1 = qm.createProject("Example Project 1", "Description 1", "1.0", null, null, null, true, false);
+        Project p2 = qm.createProject("Example Project 2", "Description 2", "1.1", null, p1, null, true, false);
+        Bom bom = qm.createBom(p2, new Date(), Bom.Format.CYCLONEDX, "1.1", 1, UUID.randomUUID().toString());
+
+        Assert.assertEquals("Example Project 1", p1.getName());
+        Assert.assertEquals("Example Project 2", p2.getName());
+        Assert.assertNotNull(p1.getUuid());
+        Assert.assertNotNull(p2.getUuid());
+
+        Project p3 = qm.getObjectByUuid(Project.class, p2.getUuid());
+        Assert.assertNotNull(p3.getParents());
+        p3.getParents().forEach(p -> {
+            Assert.assertEquals(p1.getName(), p.getName());
+        });
+   
+        Project p4 = qm.getObjectByUuid(Project.class, p1.getUuid());
+
+        Assert.assertNotEquals(0, p4.getChildren().size());
+
+        Assert.assertNotNull(bom.getProject());
+        Assert.assertEquals("Example Project 2", bom.getProject().getName());
+        Assert.assertEquals("Description 2", bom.getProject().getDescription());
+        Assert.assertEquals("1.1", bom.getProject().getVersion());
+
+        Assert.assertNotNull(bom.getUuid());
+        Assert.assertNotNull(bom.getImported());
+
+    }
 }

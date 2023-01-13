@@ -47,10 +47,13 @@ import javax.jdo.PersistenceManager;
 import javax.jdo.Query;
 import java.security.Principal;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 final class ProjectQueryManager extends QueryManager implements IQueryManager {
@@ -325,6 +328,30 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         return resolvedTags;
     }
 
+        /**
+     * Returns a list of Tag objects what have been resolved. It resolved
+     * tags by querying the database to retrieve the tag. If the tag does
+     * not exist, the tag will be created and returned with other resolved
+     * tags.
+     * @param tags a List of Projects to resolve
+     * @return List of resolved Projects
+     */
+    private synchronized List<Project> resolveProjects(final List<Project> projects) {
+        if (projects == null) {
+            return new ArrayList<>();
+        }
+        final List<Project> resolvedProjects = new ArrayList<>();
+        for (final Project project: projects) {
+           
+            final Project resolvedProject = getObjectByUuid(Project.class, project.getUuid());
+            if (resolvedProject != null) {
+                resolvedProjects.add(resolvedProject);
+            }
+        }
+        
+        return resolvedProjects;
+    }
+
     /**
      * Returns a list of Tag objects by name.
      * @param name the name of the Tag
@@ -383,20 +410,22 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @param commitIndex specifies if the search index should be committed (an expensive operation)
      * @return the created Project
      */
-    public Project createProject(String name, String description, String version, List<Tag> tags, Project parent, PackageURL purl, boolean active, boolean commitIndex) {
+    public Project createProject(String name, String description, String version, List<Tag> tags, List<Project> parents, PackageURL purl, boolean active, boolean commitIndex) {
         final Project project = new Project();
         project.setName(name);
         project.setDescription(description);
         project.setVersion(version);
-        if (parent != null) {
-            project.setParent(parent);
-        }
+    
         project.setPurl(purl);
         project.setActive(active);
-        final Project result = persist(project);
+
+        final List<Project> resolvedParents = resolveProjects(parents);
+        bindProjects(project, resolvedParents);
 
         final List<Tag> resolvedTags = resolveTags(tags);
         bind(project, resolvedTags);
+
+        final Project result = persist(project);
 
         Event.dispatch(new IndexEvent(IndexEvent.Action.CREATE, pm.detachCopy(result)));
         commitSearchIndex(commitIndex, Project.class);
@@ -456,6 +485,7 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
      * @return the updated Project
      */
     public Project updateProject(Project transientProject, boolean commitIndex) {
+        LOGGER.info("updateProjects enter");
         final Project project = getObjectByUuid(Project.class, transientProject.getUuid());
         project.setAuthor(transientProject.getAuthor());
         project.setPublisher(transientProject.getPublisher());
@@ -469,6 +499,9 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         project.setSwidTagId(transientProject.getSwidTagId());
         project.setActive(transientProject.isActive());
 
+        final List<Project> resolvedProjects = resolveProjects(transientProject.getParents());
+        bindProjects(project, resolvedProjects);        
+    
         final List<Tag> resolvedTags = resolveTags(transientProject.getTags());
         bind(project, resolvedTags);
 
@@ -499,7 +532,7 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
         if (includeComponents && includeServices) {
             project.setDirectDependencies(source.getDirectDependencies());
         }
-        project.setParent(source.getParent());
+        project.setParents(source.getParents());
         project = persist(project);
 
         if (includeTags) {
@@ -681,6 +714,32 @@ final class ProjectQueryManager extends QueryManager implements IQueryManager {
             final List<Project> projects = tag.getProjects();
             if (!projects.contains(project)) {
                 projects.add(project);
+            }
+        }
+        pm.currentTransaction().commit();
+    }
+
+    /**
+     * Binds the two objects together in a corresponding join table.
+     * @param project a Project object
+     * @param projects a List of child projects objects
+     */
+    @SuppressWarnings("unchecked")
+    public void bindProjects(Project project, List<Project> projects) {
+        final Query<Project> query = pm.newQuery(Project.class, "parents.contains(:project)");
+        final List<Project> currentParentsProjects = (List<Project>)query.execute(project);
+        pm.currentTransaction().begin();
+        for (final Project project2: currentParentsProjects) {
+            if (!projects.contains(project2)) {
+                project2.getParents().remove(project);
+            }
+        }
+
+        project.setParents(projects);
+        for (final Project project2: projects) {
+            final Collection<Project> childrenProjects = project2.getChildren();
+            if (!childrenProjects.contains(project)) {
+                childrenProjects.add(project);
             }
         }
         pm.currentTransaction().commit();

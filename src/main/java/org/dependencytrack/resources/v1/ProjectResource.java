@@ -41,6 +41,8 @@ import org.dependencytrack.persistence.QueryManager;
 import org.dependencytrack.resources.v1.vo.CloneProjectRequest;
 
 import java.security.Principal;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -113,6 +115,7 @@ public class ProjectResource extends AlpineResource {
             final Project project = qm.getObjectByUuid(Project.class, uuid);
             if (project != null) {
                 if (qm.hasAccess(super.getPrincipal(), project)) {
+                    project.setMetrics(qm.getMostRecentProjectMetrics(project));
                     return Response.ok(project).build();
                 } else {
                     return Response.status(Response.Status.FORBIDDEN).entity("Access to the specified project is forbidden").build();
@@ -239,8 +242,12 @@ public class ProjectResource extends AlpineResource {
             jsonProject.setClassifier(Classifier.APPLICATION);
         }
         try (QueryManager qm = new QueryManager()) {
-            if (jsonProject.getParent() != null && jsonProject.getParent().getUuid() != null) {
-                jsonProject.setParent(qm.getObjectByUuid(Project.class, jsonProject.getParent().getUuid()));
+            if (jsonProject.getParents() != null && !jsonProject.getParents().isEmpty()) {
+                List<Project> parents = new ArrayList<Project>();
+                jsonProject.getParents().forEach((p) -> {
+                    parents.add(qm.getObjectByUuid(Project.class, p.getUuid()));
+                });
+                jsonProject.setParents(parents);
             }
             Project project = qm.getProject(StringUtils.trimToNull(jsonProject.getName()), StringUtils.trimToNull(jsonProject.getVersion()));
             if (project == null) {
@@ -344,7 +351,6 @@ public class ProjectResource extends AlpineResource {
             Project project = qm.getObjectByUuid(Project.class, uuid);
             if (project != null) {
                 var modified = false;
-                project = qm.detach(Project.class, project.getId());
                 modified |= setIfDifferent(jsonProject, project, Project::getName, Project::setName);
                 modified |= setIfDifferent(jsonProject, project, Project::getVersion, Project::setVersion);
                 // if either name or version has been changed, verify that this new combination does not already exist
@@ -360,6 +366,16 @@ public class ProjectResource extends AlpineResource {
                 modified |= setIfDifferent(jsonProject, project, Project::getPurl, Project::setPurl);
                 modified |= setIfDifferent(jsonProject, project, Project::getSwidTagId, Project::setSwidTagId);
                 modified |= setIfDifferent(jsonProject, project, Project::isActive, Project::setActive);
+                if(jsonProject.getParents() != null && (!Collections.isEmpty(jsonProject.getParents()) || !Collections.isEmpty(project.getParents()))) {
+                    modified = true;
+                    List<Project> parents = new ArrayList<Project>();
+                    // projects are identified by id internally so we have to fetch them first 
+                    jsonProject.getParents().forEach((p) -> {
+                        parents.add(qm.getObjectByUuid(Project.class, p.getUuid()));
+                    });
+                    project.setParents(parents);
+                
+                }
                 if (jsonProject.getTags() != null && (!Collections.isEmpty(jsonProject.getTags()) || !Collections.isEmpty(project.getTags()))) {
                     modified = true;
                     project.setTags(jsonProject.getTags());

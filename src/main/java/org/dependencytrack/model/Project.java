@@ -80,7 +80,7 @@ import java.util.UUID;
                 @Persistent(name = "purl"),
                 @Persistent(name = "swidTagId"),
                 @Persistent(name = "uuid"),
-                @Persistent(name = "parent"),
+                @Persistent(name = "parents"),
                 @Persistent(name = "children"),
                 @Persistent(name = "properties"),
                 @Persistent(name = "tags"),
@@ -187,12 +187,14 @@ public class Project implements Serializable {
     @NotNull
     private UUID uuid;
 
-    @Persistent
-    @Column(name = "PARENT_PROJECT_ID")
-    private Project parent;
+    @Persistent(table="PROJECTS_MAP", mappedBy = "children", defaultFetchGroup = "true")
+    @Join(column = "CHILD_PROJECT_ID")
+    @Element(column = "PARENT_PROJECT_ID")
+    private List<Project> parents;
 
-    @Persistent(mappedBy = "parent")
-    private Collection<Project> children;
+    @Persistent(mappedBy = "parents", defaultFetchGroup = "true")
+    @Order(extensions = @Extension(vendorName = "datanucleus", key = "list-ordering", value = "name ASC"))
+    private List<Project> children;
 
     @Persistent(mappedBy = "project", defaultFetchGroup = "true")
     @Order(extensions = @Extension(vendorName = "datanucleus", key = "list-ordering", value = "groupName ASC, propertyName ASC"))
@@ -359,19 +361,19 @@ public class Project implements Serializable {
         this.uuid = uuid;
     }
 
-    public Project getParent() {
-        return parent;
+    public List<Project> getParents() {
+        return parents;
     }
 
-    public void setParent(Project parent) {
-        this.parent = parent;
+    public void setParents(List<Project> parents) {
+        this.parents = parents;
     }
 
-    public Collection<Project> getChildren() {
+    public List<Project> getChildren() {
         return children;
     }
 
-    public void setChildren(Collection<Project> children) {
+    public void setChildren(List<Project> children) {
         this.children = children;
     }
 
